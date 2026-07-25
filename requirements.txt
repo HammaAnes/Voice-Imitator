@@ -1,0 +1,8 @@
+librosa
+torch
+torchaudio
+soundfile
+numpy
+fastapi 
+uvicorn
+TTS
