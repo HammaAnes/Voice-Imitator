@@ -1,0 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Alex+Brush&family=Anonymous+Pro:ital,wght@0,400;0,700;1,400;1,700&family=Geist:ital,wght@0,100..900;1,100..900&family=Google+Sans+Flex:opsz,wght@6..144,1..1000&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
+@import 'tailwindcss';
+
+
+body{
+    background-color: rgb(238, 232, 224);
+    font-family: 'Plus Jakarta Sans';
+}
