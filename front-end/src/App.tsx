@@ -1,9 +1,10 @@
 import { useState, useRef } from "react";
 import logo from "./assets/logo.svg";
+import { getResult, getStatus, uploadFile } from "./api/client";
 
 const LANGUAGES = [
   { value: "en", label: "English" },
-  { value: "fr-fr", label: "Français" },
+  { value: "fr", label: "Français" },
   { value: "ar", label: "عربية" },
 ];
 
@@ -12,8 +13,10 @@ export default function App() {
   const [sentence, setSentence] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "submitting" | "done" | "error">("idle");
+  const [job_id, setJob_id] = useState("")
   const uploadedFile = useRef<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   const canSubmit = sentence.trim().length > 0 && uploadedFile.current && status !== "submitting";
 
@@ -21,14 +24,68 @@ export default function App() {
     const file = e.target.files?.[0] ?? null;
     uploadedFile.current = file;
     setFileName(file?.name ?? null);
+    
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canSubmit) return;
-    setStatus("submitting");
-    // ... your upload logic
-  };
+const fetchStatus = (jobId: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const check = async () => {
+      const response = await getStatus(jobId);
+      if (!response) {
+        reject(new Error("Failed to fetch status"));
+        return;
+      }
+      if (response.data.status === "done") {
+        resolve(response);
+      } else if (response.data.status === "error") {
+        reject(new Error(response.data.detail));
+      } else {
+        setTimeout(check, 3000);
+      }
+    };
+    check();
+  });
+};
+
+const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!canSubmit || !uploadedFile.current) return;
+
+  setStatus("submitting");
+  setErrorMessage(null);
+
+  const uploadResponse = await uploadFile(uploadedFile.current, sentence, lang);
+  if (!uploadResponse) {
+    setStatus("error");
+    setErrorMessage("Upload failed — check the console.");
+    return;
+  }
+
+  const jobId = uploadResponse.data.job_id;
+  setJob_id(jobId);
+
+  try {
+    await fetchStatus(jobId);
+    const blob = await getResult(jobId);
+    console.log("blob:", blob, "is Blob:", blob instanceof Blob);
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      setAudioUrl(url);
+      setStatus("done");
+    } else {
+      setStatus("error");
+      setErrorMessage("No audio was returned.");
+    }
+  } catch (err) {
+    console.error("Generation failed:", err);
+    setStatus("error");
+    setErrorMessage(err instanceof Error ? err.message : "Something went wrong.");
+  }
+};
+
+
 
   return (
     <main className="min-h-screen w-full bg-[#FAF7F2] flex justify-center">
@@ -156,6 +213,23 @@ export default function App() {
             )}
           </button>
         </form>
+          
+          {errorMessage && (
+            <p className="text-sm text-red-600">{errorMessage}</p>
+          )}
+
+        {audioUrl && (
+          <div className="flex flex-col gap-3">
+            <audio controls src={audioUrl} className="w-full" />
+            <a
+              href={audioUrl}
+              download="cloned-voice.wav"
+              className="text-sm text-[#1C1917] underline underline-offset-2"
+            >
+              Download audio
+            </a>
+          </div>
+        )}
       </div>
     </main>
   );
