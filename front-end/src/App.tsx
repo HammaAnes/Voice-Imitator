@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import logo from "./assets/logo.svg";
 import { getResult, getStatus, uploadFile } from "./api/client";
 
@@ -17,8 +17,22 @@ export default function App() {
   const uploadedFile = useRef<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<"upload" | "record">("upload");
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
 
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const canSubmit = sentence.trim().length > 0 && uploadedFile.current && status !== "submitting";
+
+  useEffect(() => {
+  return () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+  };
+}, [recordedUrl]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
@@ -26,6 +40,49 @@ export default function App() {
     setFileName(file?.name ?? null);
     
   };
+
+  const startRecording = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      const file = new File([blob], "recording.webm", { type: "audio/webm" });
+
+      uploadedFile.current = file;
+      setFileName(file.name);
+      setRecordedUrl(URL.createObjectURL(blob));
+
+      stream.getTracks().forEach((track) => track.stop()); // release the mic
+    };
+
+    mediaRecorderRef.current = recorder;
+    recorder.start();
+    setIsRecording(true);
+    setRecordingSeconds(0);
+
+    timerRef.current = setInterval(() => {
+      setRecordingSeconds((s) => s + 1);
+    }, 1000);
+  } catch (err) {
+    console.error("Microphone access denied or unavailable:", err);
+  }
+};
+
+const stopRecording = () => {
+  mediaRecorderRef.current?.stop();
+  setIsRecording(false);
+  if (timerRef.current) clearInterval(timerRef.current);
+};
+
+const formatTime = (s: number) =>
+  `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
 const fetchStatus = (jobId: string): Promise<any> => {
   return new Promise((resolve, reject) => {
@@ -98,7 +155,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               IMITATE
             </span>
           </div>
-          <span className="text-sm text-[#78716C] italic">
+          <span className="text-sm text-[#78716C] italic font-bold">
             ai powered by anas
           </span>
         </nav>
@@ -161,37 +218,97 @@ const handleSubmit = async (e: React.FormEvent) => {
 
           {/* File upload */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-[#1C1917]">
-              Voice sample
-            </label>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="group flex items-center gap-4 bg-white rounded-xl border border-dashed border-[#D6D0C4] hover:border-[#1C1917]/30 px-5 py-5 text-left transition"
-            >
-              <div className="shrink-0 w-10 h-10 rounded-full bg-[#F5F0EA] flex items-center justify-center text-[#78716C] group-hover:text-[#1C1917] transition">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 3v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"
-                    stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+            <div className="flex justify-between items-baseline">
+              <label className="text-sm font-medium text-[#1C1917]">
+                Voice sample
+              </label>
+              <div className="flex text-xs bg-[#F5F0EA] rounded-full p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setInputMode("upload")}
+                  className={`px-3 py-1 rounded-full transition ${
+                    inputMode === "upload" ? "bg-white text-[#1C1917] shadow-sm" : "text-[#78716C]"
+                  }`}
+                >
+                  Upload
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInputMode("record")}
+                  className={`px-3 py-1 rounded-full transition ${
+                    inputMode === "record" ? "bg-white text-[#1C1917] shadow-sm" : "text-[#78716C]"
+                  }`}
+                >
+                  Record
+                </button>
               </div>
-              <div className="flex flex-col">
-                <span className="text-sm text-[#1C1917] font-medium">
-                  {fileName ?? "Choose an audio file"}
-                </span>
-                <span className="text-xs text-[#A8A29E]">
-                  {fileName ? "Click to replace" : "a clean audio clip with a single-speaker audio works best"}
-                </span>
+            </div>
+
+            {inputMode === "upload" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="group flex items-center gap-4 bg-white rounded-xl border border-dashed border-[#D6D0C4] hover:border-[#1C1917]/30 px-5 py-5 text-left transition"
+                >
+                  <div className="shrink-0 w-10 h-10 rounded-full bg-[#F5F0EA] flex items-center justify-center text-[#78716C] group-hover:text-[#1C1917] transition">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 3v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"
+                        stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm text-[#1C1917] font-medium">
+                      {fileName ?? "Choose an audio file"}
+                    </span>
+                    <span className="text-xs text-[#A8A29E]">
+                      {fileName ? "Click to replace" : "a clean audio clip with a single speaker works best"}
+                    </span>
+                  </div>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  name="voice"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+              </>
+            ) : (
+              <div className="flex items-center gap-4 bg-white rounded-xl border border-[#E7E2DA] px-5 py-5">
+                <button
+                  type="button"
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition ${
+                    isRecording ? "bg-red-500 text-white" : "bg-[#F5F0EA] text-[#78716C] hover:text-[#1C1917]"
+                  }`}
+                >
+                  {isRecording ? (
+                    <span className="w-3 h-3 bg-white rounded-sm" />
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="12" cy="12" r="8" />
+                    </svg>
+                  )}
+                </button>
+
+                <div className="flex flex-col flex-1">
+                  {isRecording ? (
+                    <span className="text-sm text-[#1C1917] font-medium">
+                      Recording... {formatTime(recordingSeconds)}
+                    </span>
+                  ) : recordedUrl ? (
+                    <>
+                      <span className="text-sm text-[#1C1917] font-medium">Recording captured</span>
+                      <audio controls src={recordedUrl} className="h-8 mt-1" />
+                    </>
+                  ) : (
+                    <span className="text-sm text-[#A8A29E]">Tap to start recording</span>
+                  )}
+                </div>
               </div>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              name="voice"
-              accept="audio/*"
-              className="hidden"
-              onChange={handleFileChange}
-            />
+            )}
           </div>
 
           {/* Submit */}
